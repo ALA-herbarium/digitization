@@ -1,0 +1,100 @@
+#!/bin/sh
+
+# Digitization workflow assistance at ALA
+# by Cam Webb, Sept 2019, updated 2021-11
+
+echo
+echo "Welcome! We will now upload your images to TACC. You will need:"
+echo "    * Your TACC username"
+echo "    * Your TACC password"
+echo "    * A Two factor authentication token from the TACC app (or SMS)"
+echo "    If you are not ready you can exit now (or at any time)"
+read -p "    by entering Ctrl-C. If you are ready, hit Enter to continue ..." 
+
+echo
+echo "Where are the images? I'll assume they are"
+echo "    within a folder (with a name like 'YYYY-MM-DD_HHMM')"
+echo "    within a folder named 'New_Specimen_Photos' on the Desktop."
+read -p "    Please type the folder name (like 'YYYY-MM-DD_HHMM') ... " DIR
+if [ ! -d ~/Desktop/New_Specimen_Photos/$DIR ]
+then
+    echo
+    echo "Sorry, can't find that folder."
+    echo "    Please restart this program and try again"
+    exit 1
+fi
+cd ~/Desktop/New_Specimen_Photos/$DIR
+TACCDIR=`date +"%Y_%m_%d"`
+
+echo
+echo "Your files will be uploaded to this directory on TACC:"
+echo "    /corral-tacc/projects/arctos/web/uam/ala/$TACCDIR"
+
+echo
+echo "What is your username? (Enter your password and token when asked)"
+read -p "    ... " TACCUSER
+
+echo
+sftp ${TACCUSER}@data.tacc.utexas.edu <<EOF
+  cd /corral-tacc/projects/arctos/web/uam/ala
+  mkdir $TACCDIR
+  cd $TACCDIR
+  put *
+  ls
+  exit
+EOF
+
+echo
+echo "If the 'sftp>  ls' command above showed a list of your files, then"
+echo "  the upload was successful."
+echo
+read -p "Do you want to make an Arctos media metadata file? [N/y] " Q
+
+if [ -z "$Q" ]
+then
+    exit 0
+elif [ "$Q" != "y" ]
+then
+    exit 0
+fi
+
+echo "Paste the following list of barcodes into"
+echo "  https://arctos.database.museum/tools/barcode2guid.cfm"
+echo "to find GUIDs."
+echo
+
+find . -name "*.[jd][pn]g" | sed -E -e 's/^\.\///g' -e 's/\..*$//g' | sort | uniq | tr '\n' ','
+
+echo
+echo
+
+/usr/bin/awk -v "dir=$TACCDIR" '
+BEGIN{
+  OFS=","
+  print "... then copy the data rows in the results table (NOT the header row)"
+  print "    and paste here, followed by Ctrl-D\n"
+  while ((getline < "-") > 0)
+    guid[$1] = $2
+  cmd = "find . -name \"*.[jd][pn]g\" | sed -E -e \"s/^\\.\\///g\" | sort"
+  print "MEDIA_URI,PREVIEW_URI,MEDIA_LICENSE,MIME_TYPE,MEDIA_TYPE,"\
+        "MEDIA_RELATIONSHIP_1,MEDIA_RELATED_TERM_1,STATUS" > \
+           "arctos_media_metadata.csv"
+  while ((cmd | getline) > 0 ) {
+    if ($1 ~ /dng$/) mime = "image/dng"
+    else if ($1 ~ /jpg$/) mime = "image/jpeg"
+    else mime = ""
+    bc = $1
+    gsub(/\.[jd][pn]g$/,"",bc)
+    print "https://web.corral.tacc.utexas.edu/arctos/uam/ala/" dir "/" $1 , \
+      "" , "CC BY-NC", mime, "image", "shows cataloged_item", \
+      guid[bc] , "autoload" >> "arctos_media_metadata.csv"
+  }
+  close(cmd)
+}'
+
+echo
+echo "A CSV file named arctos_media_metadata.csv has been created in the "
+echo "  original directory in New_Specimen_Photos. Check this file carefully"
+echo "  for missing GUIDs."
+echo "Bye!"
+echo

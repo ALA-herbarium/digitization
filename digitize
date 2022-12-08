@@ -1,0 +1,213 @@
+#!/bin/sh
+
+# Digitization workflow assistance at ALA
+# by Cam Webb, Sept 2019, then Nov 2021
+
+# ============= CAMERA CAPTURE CONFIGURATION =============
+
+# Discover options using `gphoto2 --list-all-config
+
+# gphoto code ; human readable
+# -----------   --------------
+  ISO=4       ; ISO__="200   "  # 1=100, 4=200, 5=250, 6=320
+  WHITEBAL=1  ; WHBAL="AWB Wh"  # 7=Flash
+  # note: Use real f-stops, i.e., not what --list-all-config says
+  APERTURE=25 ; APERT="f25   "  # note: follows # directly, not coded 
+  SHUTTER=26  ; SHUTT="1/13  "  # 28=1/20, 35=1/100, 38=1/200, 42=1/500
+  FORMAT=8    ; FORMT="RAW+J "  # 32=RAW, 8=RAW+jpeg, 0=jpeg 
+  FOCUSMODE=3 ; FOCUS="Manual"  # 0=1ShtAF, 3=Manual
+
+# ============= END CONFIG ===============================
+
+# Create image directory
+  
+DIR=`date +"%Y-%m-%d_%H%M"`
+cd ~/Desktop/
+mkdir -p New_Specimen_Photos/$DIR
+cd New_Specimen_Photos/$DIR
+
+# # Find RawTherapee (MacOS Download from https://keybase.pub/kd6kxr/ and
+# # install, and copy rawtherapee-cli to script folder)
+# if [ -z `which rawtherapee-cli` ]
+# then
+#     RT=/Users/herbarium/Desktop/digitization-flow/rawtherapee-cli
+# else
+#     RT=rawtherapee-cli
+# fi
+
+
+# ================== REVIEW SETTINGS ======================
+
+echo
+read -p "Welcome! Do you need to review the camera/flash settings? [N/y] " Q1
+if [ "$Q1" = "y" -o "$Q1" = "Y" ]
+then
+    echo
+    echo "  +---------------------------------------------------------------+"
+    echo "  | Canon EOS 5D Mk IV                                            |"
+    echo "  |   Mode: M  (Manual)                                           |"
+    echo "  |   Focus: Set lens to AF                                       |"
+    echo "  |   AF Area: Set to middle third block of AF points             |" 
+    echo "  |   Autorotate: OFF                                             |"
+    echo "  |   (The following camera parameters are set automatically;     |"
+    echo "  |     quit & edit Config. section of this script to change)     |"
+    echo "  |   ISO          : $ISO__                                       |"
+    echo "  |   White Balance: $WHBAL                                       |"
+    echo "  |   Aperture     : $APERT                                       |"
+    echo "  |   Shutter      : $SHUTT                                       |"
+    echo "  |   Focus mode   : $FOCUS                                       |" 
+    echo "  | Flash unit                                                    |"
+    echo "  |   Power: Low                                                  |"
+    echo "  +---------------------------------------------------------------+"
+fi
+
+# ===================== PREPARATION ========================
+
+echo
+echo "Please:"
+echo "  1. Ensure the barcode scanner and camera are plugged into a USB port,"
+echo "  2. Switch on the camera"
+echo
+read -p "Press Enter when done... "
+
+# Photos starts immediately the camera is plugged in
+killall Photos &> /dev/null 
+# Needed on the Mac to unblock the USB port
+killall PTPCamera &> /dev/null
+
+# ============= TAKE THE PHOTOS ======================
+
+while true
+do
+    killall Preview >& /dev/null
+
+    echo
+    read -p "Scan the barcode, or type 'x' + ENTER to move to next phase ... "\
+         BC
+    if [ "$BC" = "x" ]
+    then
+        break
+    fi
+
+    echo
+    read -p "Press ENTER when ready to photograph ... "
+    
+    gphoto2 --set-config iso=$ISO \
+            --set-config whitebalance=$WHITEBAL \
+            --set-config aperture=$APERTURE \
+            --set-config shutterspeed=$SHUTTER \
+            --set-config focusmode=$FOCUSMODE \
+            --set-config imageformat=8 \
+            -q --capture-image-and-download >& /dev/null
+
+    # fix the orientation (make sure autorotate in camera is off)
+    exiftool -q -Orientation#=8 capt0000.jpg
+    exiftool -q -Orientation#=8 capt0001.cr2
+    rm -f *_original
+    
+    # rename
+    mv -f capt0000.jpg $BC.jpg
+    mv -f capt0001.cr2 $BC.cr2
+
+    open $BC.jpg
+
+    echo
+    read -p "Check the JPEG image. If good, type ENTER to move to 
+    next specimen. Type 'd' to delete and then reshoot this one ...  " Q2
+    if [ "$Q2" = "d" ]
+    then
+        rm -f $BC.*
+    fi
+
+    # echo "Converting Nikon CR2 to TIFF..."
+
+    ## ** dcraw **
+    ## NB: dcraw on 2021-11-18 does not have the EOS 5D MkIV color profile;
+    ##     also try -a option to average levels
+    # dcraw -T -w -c $BC.cr2 > _tmp.tiff
+    # tiffcp -c zip _tmp.tiff $BC.tiff
+    # rm _tmp.tiff
+
+    ## imagemagick
+    ## Also try -auto-level -auto-gamma -depth 16
+    # convert -define dng:use-camera-wb=true H2345.cr2 \
+    #         -depth 8 -compress zip $BC.tiff
+
+    ## rawtherapee
+    # rawtherapee-cli -tz -b8 -c $BC.cr2 -o $BC.tiff
+
+    ## sips (mac)
+    # sips -s format tiff /Path/To/Image/bla.CR2 --out bla.tiff
+    
+    ## metadata
+    # exiftool -tagsFromFile $BC.cr2 -All:All --IFD1:All $BC.tiff
+
+    # echo "Converting Nikon CR2 to DNG..."
+    # raw2dng -o $BC.dng $BC.cr2  # can't build on Lab Mac
+    # open -a "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter" $BC.cr2  # can't install new version of converter, OS too old
+
+    # https://wwwimages2.adobe.com/content/dam/acom/en/products/
+    #   photoshop/pdfs/dng_commandline.pdf
+    
+done
+
+echo
+echo "Now use the Adobe DNG Converter program to create DNG files ..."
+read -p "When done, type 'DELETE' to delete the original CR2 files ... " DEL
+
+if [ $DEL = "DELETE" ]
+then
+    rm -rf *cr2
+fi
+
+echo
+echo "OK, all done. You can use the 'upload_to_tacc' script to upload the"
+echo "    images to TACC. Please switch off the camera"
+# echo "    and SWITCH OFF THE FLASH POWER UNIT UNDER THE DESK!"
+echo
+echo "Bye!"
+echo
+
+
+# ============= NOTES =========================
+
+# Gphoto2
+#   To get photo from camera. Gphoto2 only captures images on some cameras,
+#   but the new Canon 5D MkIV worked out of the box.
+
+# Exposure Time                   : 1/160
+# F Number                        : 11.0
+# Exposure Program                : Manual
+# ISO                             : 50
+# Exposure Compensation           : 0
+# White Balance                   : Flash
+# Slow Shutter                    : None
+# Shutter Curtain Sync            : 1st-curtain sync
+# Color Space                     : sRGB
+# Lens ID                         : Canon EF 50mm f/2.5 Macro
+# Megapixels                      : 17.1
+# Camera Model Name               : Canon EOS-1Ds Mark II
+# Orientation                     : Rotate 270 CW
+# Focus Mode                      : One-shot AF
+# Num AF Points                   : 53
+# Valid AF Points                 : 45
+# AF Points In Focus              : 24,25,26,27,28,35,36,37,38
+# AF Point Illumination           : On
+# Date/Time Original              : 2007:08:10 09:25:23
+
+# Set but not needed 
+# Tried to set but failed autofocusarea 
+  # AF area is set by the [+] button, but can be controlled here
+  # FOCUSAREA=1565884287 ; FOCAR="mid-21"
+
+# Comments: rawtherapee, Adobe cant do tiff, ufraw, rawstudio, raw2dng hdrmerge... 
+
+# 1. Install Homebrew, as per https://brew.sh/
+# 2. $ brew install gphoto2
+# 3. $ brew install exiftool
+
+#   echo "  |   Focus: Manual (check focus by switching to LiveView,        |"
+#   echo "  |     pressing Start, and pressing 'magn. glass' for zoom)      |"
+
+# Note: this command needed to set Preview not to open all previous images:
+#  defaults write com.apple.Preview ApplePersistenceIgnoreState YES
