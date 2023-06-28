@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# Backup to s3
+# by Cam Webb,2023-06-28
+
+echo "Backing up 'Desktop/New_Specimen_Photos/' to the cloud."
+echo "This may take a while..."
+echo
+
+s3cmd -v --no-preserve --delete-removed sync /Users/herbarium/Desktop/New_Specimen_Photos/ s3://digitization/New_Specimen_Photos/
+
